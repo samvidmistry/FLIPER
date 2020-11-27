@@ -123,11 +123,12 @@ def runInstruction(instr):
         if not path.exists(iPath):
             raise ImagePathError(
                 errorAtToken("Image at {} does not exist.".format(iPath),
-                             iPath))
+                             children[0].children[0]))
 
         if not path.isfile(iPath):
             raise ImagePathError(
-                errorAtToken("{} is not a file".format(iPath), iPath))
+                errorAtToken("{} is not a file".format(iPath),
+                             children[0].children[0]))
 
         try:
             im = Image.open(iPath).convert("RGBA")
@@ -138,7 +139,7 @@ def runInstruction(instr):
             raise ImagePathError(
                 errorAtToken(
                     "Image at {} cannot be opened or identified.".format(
-                        iPath), iPath))
+                        iPath), children[0].children[0]))
 
     elif instr.data == 'move_object':
         checkCanvas(instr.children[0])
@@ -224,8 +225,58 @@ def runInstruction(instr):
             image.putalpha(destAlpha)
             drawFrame()
 
+    elif instr.data == 'scale_object':
+        checkCanvas(instr.children[0])
+        id = instr.children[0].children[0][1:-1]
+        checkId(instr.children[0])
 
-def runFliper(program, out="out.webm"):
+        sx = float(instr.children[1].children[0])
+        sy = float(instr.children[2].children[0])
+
+        duration = instr.children[3].children[0]
+        checkDuration(duration)
+        duration = int(duration)
+
+        sWidth = imageData[id].width
+        sHeight = imageData[id].height
+        dWidth = math.ceil(sWidth * sx)
+        dHeight = math.ceil(sHeight * sy)
+
+        stepx = abs(dWidth - sWidth) / duration
+        stepy = abs(dHeight - sHeight) / duration
+        signx = -1 if dWidth < sWidth else 1
+        signy = -1 if dHeight < sHeight else 1
+
+        for i in range(1, duration + 1):
+            imageData[id] = imageData[id].resize(
+                (sWidth + math.ceil(signx * stepx * i),
+                 sHeight + math.ceil(signy * stepy * i)))
+            drawFrame()
+
+        if imageData[id].width != dWidth or imageData[id].height != dHeight:
+            imageData[id] = imageData[id].resize((dWidth, dHeight))
+            drawFrame()
+
+    elif instr.data == 'wait':
+        checkCanvas(instr.children[0])
+        duration = instr.children[0].children[0]
+        checkDuration(duration)
+        duration = int(duration)
+
+        for i in range(duration):
+            drawFrame()
+
+    elif instr.data == 'delete_object':
+        checkCanvas(instr.children[0])
+        id = instr.children[0].children[0][1:-1]
+        checkId(instr.children[0])
+
+        del imageData[id]
+        del imageLocation[id]
+
+        drawFrame()
+
+def runFliper(program, out="out.mp4"):
     parseTree = parser.parse(program)
 
     for instr in parseTree.children:
@@ -236,7 +287,7 @@ def runFliper(program, out="out.webm"):
         fName = "/tmp/frame_{}.png".format(i)
         f.save(fName)
         frameNames.append(fName)
-    clip = ImageSequenceClip(frameNames, fps=30, with_mask=True)
+    clip = ImageSequenceClip(frameNames, fps=15, with_mask=True)
     clip.write_videofile(out, audio=False)
 
 
