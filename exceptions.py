@@ -47,3 +47,20 @@ class DuplicateIdError(FliperError):
     '''
     def __init__(self, message):
         self.message = message
+
+
+class IdNotFoundError(FliperError):
+    '''
+    Exception raised when there is no image associated with provided ID.
+    '''
+    def __init__(self, message):
+        self.message = message
+
+
+class InvalidDurationError(FliperError):
+    '''
+    Exception raised when the duration specified for a transition is invalid,
+    i.e., duration <= 0.
+    '''
+    def __init__(self, message):
+        self.message = message

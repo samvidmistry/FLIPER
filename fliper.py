@@ -1,22 +1,27 @@
 from argparse import ArgumentParser
 from lark import Lark
 import PIL
-from PIL import Image, ImageDraw
+from PIL import Image
 from exceptions import CanvasReadjustError, ImagePathError, CanvasNotSetError
-from exceptions import ColorOutOfRangeError, DuplicateIdError
+from exceptions import ColorOutOfRangeError, DuplicateIdError, IdNotFoundError
+from exceptions import InvalidDurationError
 from os import path
+from moviepy.editor import ImageSequenceClip
+import math
 
 with open('grammar.lark', 'r') as f:
     fliperGrammer = "\n".join(f.readlines())
 
 parser = Lark(fliperGrammer)
 
-canvasWidth, canvasHeight = None, None
+canvasWidth, canvasHeight, canvasBackground = None, None, None
 canvasImage = None
 canvas = None
 
 # A dictionary containing image ID and their corresponding image object
 imageData = {}
+# A dictionary containing image's location on the canvas
+imageLocation = {}
 
 # A list containing frames for the flipbook
 frames = []
@@ -36,11 +41,40 @@ def checkCanvas(tok):
             errorAtToken("Canvas size not set before drawing.", tok))
 
 
+def checkDuration(tok):
+    if int(tok) <= 0:
+        raise InvalidDurationError(
+            errorAtToken("Duration must be strictly greater than 0", tok))
+
+
+def checkId(tok):
+    idStr = tok.children[0][1:-1]
+    if idStr not in imageData:
+        raise IdNotFoundError(
+            errorAtToken("No image is associated with ID {}".format(idStr),
+                         tok))
+
+
+def alphaOutOfRangeError(tok):
+    raise ColorOutOfRangeError(errorAtToken("0 <= alpha value <= 255", tok))
+
+
+def drawFrame():
+    canvasImage = Image.new("RGBA", (canvasWidth, canvasHeight),
+                            canvasBackground)
+
+    for k, v in imageData.items():
+        canvasImage.paste(v, box=(imageLocation[k]))
+
+    frames.append(canvasImage)
+
+
 def runInstruction(instr):
     global canvasWidth
     global canvasHeight
     global canvas
     global canvasImage
+    global canvasBackground
 
     if instr.data == 'canvas_size':
         if canvasWidth is not None and canvasHeight is not None:
@@ -65,13 +99,11 @@ def runInstruction(instr):
                     errorAtToken("0 <= color value <= 255", instr.children[4]))
             alpha = int(instr.children[5].children[0])
             if alpha < 0 or alpha > 255:
-                raise ColorOutOfRangeError(
-                    errorAtToken("0 <= alpha value <= 255", instr.children[5]))
+                alphaOutOfRangeError(instr.children[5])
             color = (red, green, blue, alpha)
         canvasWidth = int(width)
         canvasHeight = int(height)
-        canvasImage = Image.new("RGBA", (width, height), color)
-        canvas = ImageDraw.Draw(canvasImage)
+        canvasBackground = color
 
     elif instr.data == 'declare_image':
         checkCanvas(instr.children[0].children[0])
@@ -100,22 +132,112 @@ def runInstruction(instr):
         try:
             im = Image.open(iPath).convert("RGBA")
             imageData[id] = im
-            canvasImage.paste(im, box=(x, y))
-            canvas = ImageDraw.Draw(canvasImage)
+            imageLocation[id] = (x, y)
+            drawFrame()
         except PIL.UnidentifiedImageError:
             raise ImagePathError(
                 errorAtToken(
                     "Image at {} cannot be opened or identified.".format(
                         iPath), iPath))
 
+    elif instr.data == 'move_object':
+        checkCanvas(instr.children[0])
+        id = instr.children[0].children[0][1:-1]
+        checkId(instr.children[0])
 
-def runFliper(program):
+        sx, sy = imageLocation[id]
+        dx = int(instr.children[1].children[0])
+        dy = int(instr.children[2].children[0])
+        duration = instr.children[3].children[0]
+
+        checkDuration(duration)
+        duration = int(duration)
+
+        # If we are crossing the x or y axis and going to the negative
+        # side, we'll first have to come to 0 and then go to the destination
+        distx = abs(sx - dx) if sx * dx >= 0 else (abs(sx) + abs(dx))
+        disty = abs(sy - dy) if sy * dy >= 0 else (abs(sy) + abs(dy))
+        stepx = distx / duration
+        stepy = disty / duration
+        signx = -1 if dx < sx else 1
+        signy = -1 if dy < sy else 1
+        for i in range(1, duration + 1):
+            imageLocation[id] = (sx + math.ceil(stepx * signx * i),
+                                 sy + math.ceil(stepy * signy * i))
+            drawFrame()
+
+        if abs(sx - dx) % duration != 0 or abs(sy - dy) % duration != 0:
+            #################################################
+            # TODO: Give a warning when the duration is not #
+            # evenly divisible                              #
+            #################################################
+            imageLocation[id] = (dx, dy)
+            drawFrame()
+
+    elif instr.data == 'rotate_object':
+        checkCanvas(instr.children[0])
+        id = instr.children[0].children[0][1:-1]
+        checkId(instr.children[0])
+
+        degrees = float(instr.children[1].children[0])
+        duration = instr.children[2].children[0]
+        checkDuration(duration)
+        duration = int(duration)
+
+        image = imageData[id]
+        step = degrees / duration
+        for i in range(1, duration + 1):
+            imageData[id] = image.rotate(angle=step * i,
+                                         fillcolor=canvasBackground)
+            drawFrame()
+
+        if degrees % duration != 0:
+            imageData[id] = image.rotate(angle=degrees,
+                                         fillcolor=canvasBackground)
+            drawFrame()
+
+    elif instr.data == 'change_opacity':
+        checkCanvas(instr.children[0])
+        id = instr.children[0].children[0][1:-1]
+        checkId(instr.children[0])
+
+        destAlpha = int(instr.children[1].children[0])
+        if destAlpha < 0 or destAlpha > 255:
+            alphaOutOfRangeError(instr.children[1])
+
+        duration = instr.children[2].children[0]
+        checkDuration(duration)
+        duration = int(duration)
+
+        image = imageData[id]
+        # Since the alpha channel is changed for the whole
+        # image, taking alpha value from any pixel should work
+        _, _, _, srcAlpha = image.getpixel((0, 0))
+        step = abs(destAlpha - srcAlpha) / duration
+        sign = -1 if srcAlpha > destAlpha else 1
+
+        for i in range(1, duration + 1):
+            image.putalpha(srcAlpha + math.ceil(sign * step * i))
+            drawFrame()
+
+        if abs(destAlpha - srcAlpha) % duration != 0:
+            image.putalpha(destAlpha)
+            drawFrame()
+
+
+def runFliper(program, out="out.webm"):
     parseTree = parser.parse(program)
 
     for instr in parseTree.children:
         runInstruction(instr)
 
-    canvasImage.show()
+    frameNames = []
+    for i, f in enumerate(frames):
+        fName = "/tmp/frame_{}.png".format(i)
+        f.save(fName)
+        frameNames.append(fName)
+    clip = ImageSequenceClip(frameNames, fps=30, with_mask=True)
+    clip.write_videofile(out, audio=False)
 
 
 def main():

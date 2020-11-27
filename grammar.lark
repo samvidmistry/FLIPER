@@ -1,28 +1,32 @@
 start: instruction+
 
-instruction: "CNV" width height [red green blue alpha]  -> canvas_size
-           | "IMG" path id [x y]                        -> declare_image
-           | "MOV" id x y duration                      -> move_object
-           | "SCL" id x y duration                      -> scale_object
-           | "ROTC" id degrees duration                 -> rotate_clockwise
-           | "ROTA" id degrees duration                 -> rotate_anticlockwise
-           | "FDI" id duration                          -> fade_in
-           | "FDO" id duration                          -> fade_out
+instruction: "CNV" width height [red green blue alpha]    -> canvas_size
+           | "IMG" path id [six siy]                      -> declare_image
+           | "MOV" id six siy duration                    -> move_object
+           | "SCL" id fx fy duration                      -> scale_object
+           | "ROT" id degrees duration                    -> rotate_object
+           | "ALP" id alpha duration                      -> change_opacity
 
-width: NUMBER
-height: NUMBER
-red: NUMBER
-green: NUMBER
-blue: NUMBER
-alpha: NUMBER
+width: INT
+height: INT
+red: INT
+green: INT
+blue: INT
+alpha: INT
 path: ESCAPED_STRING
 id: ESCAPED_STRING
-x: NUMBER
-y: NUMBER
-duration: NUMBER
-degrees: NUMBER
+six: SIGNED_INT
+siy: SIGNED_INT
+fx: FLOAT
+fy: FLOAT
+duration: INT
+degrees: SIGNED_NUMBER
 
-%import common.INT -> NUMBER
+%import common.INT
+%import common.SIGNED_INT
+%import common.FLOAT
+%import common.SIGNED_FLOAT
+%import common.SIGNED_NUMBER
 %import common.WS
 %import common.ESCAPED_STRING
 %import common.SH_COMMENT
