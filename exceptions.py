@@ -64,3 +64,22 @@ class InvalidDurationError(FliperError):
     '''
     def __init__(self, message):
         self.message = message
+
+
+class NestedBlockError(FliperError):
+    '''
+    Exception raised when a block construct is specified inside another
+    block construct. I don't see any point of nested blocks because all
+    animations in a block are going to run parallelly anyway.
+    '''
+    def __init__(self, message):
+        self.message = message
+
+
+class BlockEndWithoutBeginError(FliperError):
+    '''
+    Exception raised when a block end command is encountered without
+    the pairing begin command.
+    '''
+    def __init__(self, message):
+        self.message = message

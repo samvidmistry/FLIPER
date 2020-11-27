@@ -4,10 +4,11 @@ import PIL
 from PIL import Image
 from exceptions import CanvasReadjustError, ImagePathError, CanvasNotSetError
 from exceptions import ColorOutOfRangeError, DuplicateIdError, IdNotFoundError
-from exceptions import InvalidDurationError
+from exceptions import InvalidDurationError, NestedBlockError
+from exceptions import BlockEndWithoutBeginError
 from os import path
 from moviepy.editor import ImageSequenceClip
-import math
+from transitions import Move, Rotate, Scale, Alpha
 
 with open('grammar.lark', 'r') as f:
     fliperGrammer = "\n".join(f.readlines())
@@ -17,6 +18,9 @@ parser = Lark(fliperGrammer)
 canvasWidth, canvasHeight, canvasBackground = None, None, None
 canvasImage = None
 canvas = None
+inBlock = False
+maxDuration = 0
+animationQueue = []
 
 # A dictionary containing image ID and their corresponding image object
 imageData = {}
@@ -69,12 +73,40 @@ def drawFrame():
     frames.append(canvasImage)
 
 
+def applyAnimation(id, animation):
+    image, x, y = animation.apply(imageData[id], imageLocation[id][0],
+                                  imageLocation[id][1])
+    imageData[id] = image
+    imageLocation[id] = (x, y)
+
+
+def applyAnimationsForDuration(animations, duration):
+    for i in range(1, duration + 1):
+        for id, anim in animations:
+            applyAnimation(id, anim)
+            drawFrame()
+
+
+def applyOrQueue(id, animation, duration):
+    global maxDuration
+    global animationQueue
+
+    if inBlock:
+        maxDuration = max(maxDuration, duration)
+        animationQueue.append((id, animation))
+    else:
+        applyAnimationsForDuration([(id, animation)], duration)
+
+
 def runInstruction(instr):
     global canvasWidth
     global canvasHeight
     global canvas
     global canvasImage
     global canvasBackground
+    global inBlock
+    global maxDuration
+    global animationQueue
 
     if instr.data == 'canvas_size':
         if canvasWidth is not None and canvasHeight is not None:
@@ -154,26 +186,8 @@ def runInstruction(instr):
         checkDuration(duration)
         duration = int(duration)
 
-        # If we are crossing the x or y axis and going to the negative
-        # side, we'll first have to come to 0 and then go to the destination
-        distx = abs(sx - dx) if sx * dx >= 0 else (abs(sx) + abs(dx))
-        disty = abs(sy - dy) if sy * dy >= 0 else (abs(sy) + abs(dy))
-        stepx = distx / duration
-        stepy = disty / duration
-        signx = -1 if dx < sx else 1
-        signy = -1 if dy < sy else 1
-        for i in range(1, duration + 1):
-            imageLocation[id] = (sx + math.ceil(stepx * signx * i),
-                                 sy + math.ceil(stepy * signy * i))
-            drawFrame()
-
-        if abs(sx - dx) % duration != 0 or abs(sy - dy) % duration != 0:
-            #################################################
-            # TODO: Give a warning when the duration is not #
-            # evenly divisible                              #
-            #################################################
-            imageLocation[id] = (dx, dy)
-            drawFrame()
+        animation = Move(sx, sy, dx, dy, duration)
+        applyOrQueue(id, animation, duration)
 
     elif instr.data == 'rotate_object':
         checkCanvas(instr.children[0])
@@ -185,17 +199,8 @@ def runInstruction(instr):
         checkDuration(duration)
         duration = int(duration)
 
-        image = imageData[id]
-        step = degrees / duration
-        for i in range(1, duration + 1):
-            imageData[id] = image.rotate(angle=step * i,
-                                         fillcolor=canvasBackground)
-            drawFrame()
-
-        if degrees % duration != 0:
-            imageData[id] = image.rotate(angle=degrees,
-                                         fillcolor=canvasBackground)
-            drawFrame()
+        animation = Rotate(degrees, duration, canvasBackground)
+        applyOrQueue(id, animation, duration)
 
     elif instr.data == 'change_opacity':
         checkCanvas(instr.children[0])
@@ -211,19 +216,9 @@ def runInstruction(instr):
         duration = int(duration)
 
         image = imageData[id]
-        # Since the alpha channel is changed for the whole
-        # image, taking alpha value from any pixel should work
         _, _, _, srcAlpha = image.getpixel((0, 0))
-        step = abs(destAlpha - srcAlpha) / duration
-        sign = -1 if srcAlpha > destAlpha else 1
-
-        for i in range(1, duration + 1):
-            image.putalpha(srcAlpha + math.ceil(sign * step * i))
-            drawFrame()
-
-        if abs(destAlpha - srcAlpha) % duration != 0:
-            image.putalpha(destAlpha)
-            drawFrame()
+        animation = Alpha(srcAlpha, destAlpha, duration)
+        applyOrQueue(id, animation, duration)
 
     elif instr.data == 'scale_object':
         checkCanvas(instr.children[0])
@@ -239,23 +234,9 @@ def runInstruction(instr):
 
         sWidth = imageData[id].width
         sHeight = imageData[id].height
-        dWidth = math.ceil(sWidth * sx)
-        dHeight = math.ceil(sHeight * sy)
 
-        stepx = abs(dWidth - sWidth) / duration
-        stepy = abs(dHeight - sHeight) / duration
-        signx = -1 if dWidth < sWidth else 1
-        signy = -1 if dHeight < sHeight else 1
-
-        for i in range(1, duration + 1):
-            imageData[id] = imageData[id].resize(
-                (sWidth + math.ceil(signx * stepx * i),
-                 sHeight + math.ceil(signy * stepy * i)))
-            drawFrame()
-
-        if imageData[id].width != dWidth or imageData[id].height != dHeight:
-            imageData[id] = imageData[id].resize((dWidth, dHeight))
-            drawFrame()
+        animation = Scale(sWidth, sHeight, duration, sx, sy)
+        applyOrQueue(id, animation, duration)
 
     elif instr.data == 'wait':
         checkCanvas(instr.children[0])
@@ -276,7 +257,26 @@ def runInstruction(instr):
 
         drawFrame()
 
-def runFliper(program, out="out.mp4"):
+    elif instr.data == 'block_begin':
+        if inBlock:
+            raise NestedBlockError(
+                error("Nested blocks are not supported", instr.line, 0))
+
+        inBlock = True
+
+    elif instr.data == 'block_end':
+        if not inBlock:
+            raise BlockEndWithoutBeginError(
+                error("No pairing begin block statement present", instr.line,
+                      0))
+
+        applyAnimationsForDuration(animationQueue, maxDuration)
+        inBlock = False
+        maxDuration = 0
+        animationQueue.clear()
+
+
+def runFliper(program, out="out.mp4", fps=15):
     parseTree = parser.parse(program)
 
     for instr in parseTree.children:
@@ -287,17 +287,26 @@ def runFliper(program, out="out.mp4"):
         fName = "/tmp/frame_{}.png".format(i)
         f.save(fName)
         frameNames.append(fName)
-    clip = ImageSequenceClip(frameNames, fps=15, with_mask=True)
+    clip = ImageSequenceClip(frameNames, fps=fps, with_mask=True)
     clip.write_videofile(out, audio=False)
 
 
 def main():
     parser = ArgumentParser()
     parser.add_argument('program', help='Program to create flipbook')
+    parser.add_argument(
+        '-o',
+        '--out',
+        default='out.mp4',
+        help='Name of the output file. Beware that changing the ' +
+        'extension in the output file will also change the encoding' +
+        ' used by FLIPER to create the video.'
+    )
+    parser.add_argument('-fps', default=15, type=int, help='Frames per second')
     args = parser.parse_args()
 
     with open(args.program, 'r') as f:
-        runFliper("\n".join(f.readlines()))
+        runFliper("\n".join(f.readlines()), out=args.out, fps=args.fps)
 
 
 if __name__ == '__main__':
