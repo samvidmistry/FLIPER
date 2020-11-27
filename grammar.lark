@@ -6,6 +6,8 @@ instruction: "CNV" width height [red green blue alpha]    -> canvas_size
            | "SCL" id fx fy duration                      -> scale_object
            | "ROT" id degrees duration                    -> rotate_object
            | "ALP" id alpha duration                      -> change_opacity
+           | "WT" duration                                -> wait
+           | "DEL" id                                     -> delete_object
 
 width: INT
 height: INT
@@ -17,8 +19,8 @@ path: ESCAPED_STRING
 id: ESCAPED_STRING
 six: SIGNED_INT
 siy: SIGNED_INT
-fx: FLOAT
-fy: FLOAT
+fx: NUMBER
+fy: NUMBER
 duration: INT
 degrees: SIGNED_NUMBER
 
@@ -27,6 +29,7 @@ degrees: SIGNED_NUMBER
 %import common.FLOAT
 %import common.SIGNED_FLOAT
 %import common.SIGNED_NUMBER
+%import common.NUMBER
 %import common.WS
 %import common.ESCAPED_STRING
 %import common.SH_COMMENT
