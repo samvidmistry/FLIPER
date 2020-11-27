@@ -1,16 +1,20 @@
 start: instruction+
 
-instruction: "CNV" width height          -> canvasSize
-           | "IMG" path id [x y]         -> declareImage
-           | "MOV" id x y duration       -> moveObject
-           | "SCL" id x y duration       -> scaleObject
-           | "ROTC" id degrees duration  -> rotateClockwise
-           | "ROTA" id degrees duration  -> rotateAnticlockwise
-           | "FDI" id duration           -> fadeIn
-           | "FDO" id duration           -> fadeOut
+instruction: "CNV" width height [red green blue alpha]  -> canvas_size
+           | "IMG" path id [x y]                        -> declare_image
+           | "MOV" id x y duration                      -> move_object
+           | "SCL" id x y duration                      -> scale_object
+           | "ROTC" id degrees duration                 -> rotate_clockwise
+           | "ROTA" id degrees duration                 -> rotate_anticlockwise
+           | "FDI" id duration                          -> fade_in
+           | "FDO" id duration                          -> fade_out
 
 width: NUMBER
 height: NUMBER
+red: NUMBER
+green: NUMBER
+blue: NUMBER
+alpha: NUMBER
 path: ESCAPED_STRING
 id: ESCAPED_STRING
 x: NUMBER
@@ -19,8 +23,8 @@ duration: NUMBER
 degrees: NUMBER
 
 %import common.INT -> NUMBER
-%import COMMON.WS
-%import COMMON.ESCAPED_STRING
-%import COMMON.SH_COMMENT
+%import common.WS
+%import common.ESCAPED_STRING
+%import common.SH_COMMENT
 %ignore SH_COMMENT
 %ignore WS
