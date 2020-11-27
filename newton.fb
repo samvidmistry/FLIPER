@@ -1,14 +1,28 @@
 CNV 1280 720
+IMG "tree.webp" "T" -500 200
+MOV "T" -250 -150 15
 IMG "newt.jpg" "N" 1400 450
 SCL "N" 0.3 0.3 1
 MOV "N" 0 450 60
 IMG "apple.jpg" "A" 0 -1500
 SCL "A" 0.2 0.2 1
-MOV "A" 100 350 45
+BLKB
+    # You can run multiple animations
+    # simultaneously
+    MOV "A" 100 350 45
+    ROT "A" 720 45
+BLKE
 WT 5
 DEL "A"
 WT 5
 SCL "N" 1.2 1.2 15
-ROT "N" 360 15
-SCL "N" 0.84 0.84 15
+BLKB
+    # Different animations can end at
+    # different times
+    ROT "N" 360 30
+    SCL "N" 0.84 0.84 15
+    # Animations can be run on different
+    # objects too in the same block
+    ROT "T" 360 15
+BLKE
 WT 15
