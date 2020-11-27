@@ -8,6 +8,8 @@ instruction: "CNV" width height [red green blue alpha]    -> canvas_size
            | "ALP" id alpha duration                      -> change_opacity
            | "WT" duration                                -> wait
            | "DEL" id                                     -> delete_object
+           | "BLKB"                                       -> block_begin
+           | "BLKE"                                       -> block_end
 
 width: INT
 height: INT
