@@ -4,11 +4,13 @@ import PIL
 from PIL import Image
 from exceptions import CanvasReadjustError, ImagePathError, CanvasNotSetError
 from exceptions import ColorOutOfRangeError, DuplicateIdError, IdNotFoundError
-from exceptions import InvalidDurationError, NestedBlockError
+from exceptions import NestedBlockError
 from exceptions import BlockEndWithoutBeginError
 from os import path
 from moviepy.editor import ImageSequenceClip
 from transitions import Move, Rotate, Scale, Alpha
+from utils import alphaOutOfRangeError, checkDuration
+from utils import error, errorAtToken
 
 with open('grammar.lark', 'r') as f:
     fliperGrammer = "\n".join(f.readlines())
@@ -18,8 +20,11 @@ parser = Lark(fliperGrammer)
 canvasWidth, canvasHeight, canvasBackground = None, None, None
 canvasImage = None
 canvas = None
+# Flag indicating whether we are in a block or not
 inBlock = False
+# maximum duration from all transitions in a block
 maxDuration = 0
+# Queue of animations found in a block
 animationQueue = []
 
 # A dictionary containing image ID and their corresponding image object
@@ -31,27 +36,21 @@ imageLocation = {}
 frames = []
 
 
-def error(message, line, column):
-    return "At {}:{}, {}".format(line, column, message)
-
-
-def errorAtToken(message, tok):
-    return error(message, tok.line, tok.column)
-
-
 def checkCanvas(tok):
+    '''
+    Make sure that the canvas is initialized. If not,
+    raise CanvasNotSetError.
+    '''
     if canvasWidth is None or canvasHeight is None:
         raise CanvasNotSetError(
             errorAtToken("Canvas size not set before drawing.", tok))
 
 
-def checkDuration(tok):
-    if int(tok) <= 0:
-        raise InvalidDurationError(
-            errorAtToken("Duration must be strictly greater than 0", tok))
-
-
 def checkId(tok):
+    '''
+    Check if we have an object/image associated with the provided ID. If not,
+    raise IdNotFoundError.
+    '''
     idStr = tok.children[0][1:-1]
     if idStr not in imageData:
         raise IdNotFoundError(
@@ -59,11 +58,12 @@ def checkId(tok):
                          tok))
 
 
-def alphaOutOfRangeError(tok):
-    raise ColorOutOfRangeError(errorAtToken("0 <= alpha value <= 255", tok))
-
-
 def drawFrame():
+    '''
+    State of the canvas is saved in the `imageData` and `imageLocation`.
+    Extract all the objects, draw them on a fresh canvas and save the image as
+    a new frame.
+    '''
     canvasImage = Image.new("RGBA", (canvasWidth, canvasHeight),
                             canvasBackground)
 
@@ -74,6 +74,11 @@ def drawFrame():
 
 
 def applyAnimation(id, animation):
+    '''
+    Given the ID of the object, give it to the animation along with
+    its location and save the resulting image and location back into
+    the dictionary.
+    '''
     image, x, y = animation.apply(imageData[id], imageLocation[id][0],
                                   imageLocation[id][1])
     imageData[id] = image
@@ -81,6 +86,9 @@ def applyAnimation(id, animation):
 
 
 def applyAnimationsForDuration(animations, duration):
+    '''
+    Run the provided animations for provided duration.
+    '''
     for i in range(1, duration + 1):
         for id, anim in animations:
             applyAnimation(id, anim)
@@ -88,6 +96,10 @@ def applyAnimationsForDuration(animations, duration):
 
 
 def applyOrQueue(id, animation, duration):
+    '''
+    If we are not in a block, apply the animation directly.
+    Otherwise, queue the animation to be executed when the block ends.
+    '''
     global maxDuration
     global animationQueue
 
@@ -99,6 +111,10 @@ def applyOrQueue(id, animation, duration):
 
 
 def runInstruction(instr):
+    '''
+    Run the given instruction. In case of block begin, the instructions
+    will be collected and ran when the block end command is encountered.
+    '''
     global canvasWidth
     global canvasHeight
     global canvas
@@ -277,6 +293,10 @@ def runInstruction(instr):
 
 
 def runFliper(program, out="out.mp4", fps=15):
+    '''
+    Run the provided program and write the resulting
+    video to the file provided in `out`.
+    '''
     parseTree = parser.parse(program)
 
     for instr in parseTree.children:
