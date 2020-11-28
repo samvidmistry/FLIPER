@@ -1,4 +1,5 @@
 from argparse import ArgumentParser
+from tempfile import gettempdir
 from lark import Lark
 import PIL
 from PIL import Image
@@ -295,7 +296,9 @@ def runInstruction(instr):
 def runFliper(program, out="out.mp4", fps=15):
     '''
     Run the provided program and write the resulting
-    video to the file provided in `out`.
+    video to the file provided in `out`. Beware that this will
+    export all frame into the temporary directory of your OS
+    so make sure you have enough space.
     '''
     parseTree = parser.parse(program)
 
@@ -304,7 +307,7 @@ def runFliper(program, out="out.mp4", fps=15):
 
     frameNames = []
     for i, f in enumerate(frames):
-        fName = "/tmp/frame_{}.png".format(i)
+        fName = gettempdir() + "/frame_{}.png".format(i)
         f.save(fName)
         frameNames.append(fName)
     clip = ImageSequenceClip(frameNames, fps=fps, with_mask=True)
